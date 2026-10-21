@@ -1,0 +1,20 @@
+-- SIB-VisaPro : schéma initial. À auditer avant utilisation avec des données réelles.
+create extension if not exists pgcrypto;
+create type public.visa_status as enum ('En préparation','Documents manquants','En cours','Soumis','Approuvé','Refusé');
+create table public.profiles (id uuid primary key references auth.users(id) on delete cascade, full_name text not null default '', role text not null default 'agent' check (role in ('admin','agent','comptable','client')), created_at timestamptz not null default now());
+create table public.visa_applications (id uuid primary key default gen_random_uuid(), reference text unique not null, applicant_name text not null, email text, phone text, passport_number text, destination_country text not null, visa_type text not null, status public.visa_status not null default 'En préparation', total_amount bigint not null default 0 check(total_amount>=0), amount_paid bigint not null default 0 check(amount_paid>=0 and amount_paid<=total_amount), notes text, created_by uuid not null references auth.users(id), created_at timestamptz not null default now(), updated_at timestamptz not null default now());
+create table public.payments (id uuid primary key default gen_random_uuid(), application_id uuid not null references public.visa_applications(id) on delete cascade, amount bigint not null check(amount>0), currency text not null default 'FG' check(currency='FG'), method text not null default 'Espèces', receipt_number text unique not null, received_by uuid references auth.users(id), paid_at timestamptz not null default now(), notes text);
+create table public.appointments (id uuid primary key default gen_random_uuid(), application_id uuid references public.visa_applications(id) on delete set null, title text not null, starts_at timestamptz not null, location text, status text not null default 'Planifié', created_by uuid not null references auth.users(id), created_at timestamptz not null default now());
+create table public.application_documents (id uuid primary key default gen_random_uuid(), application_id uuid not null references public.visa_applications(id) on delete cascade, document_type text not null, storage_path text not null, uploaded_by uuid not null references auth.users(id), created_at timestamptz not null default now());
+alter table public.profiles enable row level security; alter table public.visa_applications enable row level security; alter table public.payments enable row level security; alter table public.appointments enable row level security; alter table public.application_documents enable row level security;
+create policy profiles_read_self on public.profiles for select to authenticated using(id=auth.uid());
+create policy applications_read_creator on public.visa_applications for select to authenticated using(created_by=auth.uid());
+create policy applications_insert_creator on public.visa_applications for insert to authenticated with check(created_by=auth.uid());
+create policy applications_update_creator on public.visa_applications for update to authenticated using(created_by=auth.uid()) with check(created_by=auth.uid());
+create policy payments_read_receiver on public.payments for select to authenticated using(received_by=auth.uid());
+create policy payments_insert_receiver on public.payments for insert to authenticated with check(received_by=auth.uid());
+create policy appointments_read_creator on public.appointments for select to authenticated using(created_by=auth.uid());
+create policy appointments_insert_creator on public.appointments for insert to authenticated with check(created_by=auth.uid());
+create policy documents_read_uploader on public.application_documents for select to authenticated using(uploaded_by=auth.uid());
+create policy documents_insert_uploader on public.application_documents for insert to authenticated with check(uploaded_by=auth.uid());
+-- Politiques de départ seulement : compléter les permissions par rôle et le stockage privé avant production.
